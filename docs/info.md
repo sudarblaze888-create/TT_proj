@@ -1,20 +1,17 @@
-<!---
-
-This file is used to generate your project datasheet. Please fill in the information below and delete any unused
-sections.
-
-You can also include images in this folder and reference them in the markdown. Each image must be less than
-512 kb in size, and the combined size of all images must be less than 1 MB.
--->
+<!--- docs/info.md --->
 
 ## How it works
 
-Explain how your project works
+This is a **Tiny Anomaly Detection Engine** implemented in digital hardware.
 
-## How to test
+It maintains a 4-sample sliding window of 8-bit sensor readings. Every clock cycle it:
 
-Explain how to use your project
+1. Updates the shift register with the new input sample
+2. Recomputes the running sum (adds new sample, drops oldest)
+3. Calculates the mean as `sum >> 2` (integer divide by 4, no divider needed)
+4. Computes the absolute deviation: `|new_sample − mean|`
+5. Compares deviation against a programmable threshold (set via `uio` pins)
+6. Raises `ALERT` if deviation exceeds the threshold
 
-## External hardware
-
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+The design uses only shift registers, adders, and a comparator — no multipliers,
+no ROM, no complex logic. It fits comfortably in a 1×1 tile on SKY130.
