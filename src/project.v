@@ -1,9 +1,9 @@
 `default_nettype none
 
 module tt_um_anomaly_detector (
-    input  wire [7:0] ui_in,
-    output wire [7:0] uo_out,
-    input  wire [7:0] uio_in,
+    input  wire [7:0] ui_in,    // sensor_data[7:0]
+    output wire [7:0] uo_out,   // ALERT, READY, mean[7:2]
+    input  wire [7:0] uio_in,   // threshold[7:0]
     output wire [7:0] uio_out,
     output wire [7:0] uio_oe,
     input  wire       ena,
@@ -14,49 +14,63 @@ module tt_um_anomaly_detector (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    reg [7:0] window [0:3];
+    // 4-sample circular window
+    reg [7:0] w0, w1, w2, w3;
     reg [1:0] wr_ptr;
     reg [2:0] count;
-    reg [9:0] sum;
+
+    // Mean stored as 8-bit (sum>>2)
     reg [7:0] mean;
     reg       alert;
     reg       ready;
 
-    integer i;
+    // New sum computed combinatorially each cycle
+    wire [9:0] new_sum;
+    assign new_sum = (wr_ptr == 2'd0) ? ({2'b0,ui_in} + {2'b0,w1} + {2'b0,w2} + {2'b0,w3}) :
+                     (wr_ptr == 2'd1) ? ({2'b0,w0} + {2'b0,ui_in} + {2'b0,w2} + {2'b0,w3}) :
+                     (wr_ptr == 2'd2) ? ({2'b0,w0} + {2'b0,w1} + {2'b0,ui_in} + {2'b0,w3}) :
+                                        ({2'b0,w0} + {2'b0,w1} + {2'b0,w2} + {2'b0,ui_in});
+
+    wire [7:0] new_mean = new_sum[9:2];  // divide by 4
+
+    // Absolute difference between input and CURRENT mean
+    wire [8:0] diff = ({1'b0,ui_in} >= {1'b0,mean})
+                      ? ({1'b0,ui_in} - {1'b0,mean})
+                      : ({1'b0,mean}  - {1'b0,ui_in});
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (i = 0; i < 4; i = i + 1) window[i] <= 0;
-            wr_ptr <= 0;
-            count  <= 0;
-            sum    <= 0;
-            mean   <= 0;
-            alert  <= 0;
-            ready  <= 0;
+            w0     <= 8'd0; w1 <= 8'd0; w2 <= 8'd0; w3 <= 8'd0;
+            wr_ptr <= 2'd0;
+            count  <= 3'd0;
+            mean   <= 8'd0;
+            alert  <= 1'b0;
+            ready  <= 1'b0;
         end else if (ena) begin
-            // Compute new sum (combinatorially referenced below)
-            sum    <= sum - window[wr_ptr] + ui_in;
-            window[wr_ptr] <= ui_in;
-            wr_ptr <= (wr_ptr == 2'd3) ? 2'd0 : wr_ptr + 1;
 
-            if (count < 3'd4) count <= count + 1;
+            // Write incoming sample into the slot being replaced
+            case (wr_ptr)
+                2'd0: w0 <= ui_in;
+                2'd1: w1 <= ui_in;
+                2'd2: w2 <= ui_in;
+                2'd3: w3 <= ui_in;
+            endcase
 
-            if (count == 3'd3) begin
-                // 4th sample arriving NOW: window is about to be full
-                ready <= 1;
-            end
+            // Advance pointer
+            wr_ptr <= (wr_ptr == 2'd3) ? 2'd0 : wr_ptr + 2'd1;
 
+            // Track how many samples received (cap at 4)
+            if (count < 3'd4) count <= count + 3'd1;
+
+            // Once window is full, compute mean and check alert
             if (count >= 3'd3) begin
-                // Update mean from new sum
-                mean <= (sum - window[wr_ptr] + ui_in) >> 2;
-                // Compare new input against OLD mean (before this sample)
-                // Use 9-bit subtraction to avoid unsigned underflow
-                alert <= ( ({1'b0, ui_in} > {1'b0, mean})
-                           ? (ui_in - mean)
-                           : (mean  - ui_in) ) > uio_in;
+                ready <= 1'b1;
+                mean  <= new_mean;
+                // Compare new input against old mean for alert
+                alert <= (diff > {1'b0, uio_in});
             end else begin
-                alert <= 0;
-                ready <= 0;
+                ready <= 1'b0;
+                alert <= 1'b0;
             end
         end
     end
