@@ -39,7 +39,7 @@ VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tt_um_anomaly_detector
 
 # List test modules to run, separated by commas and without the .py suffix:
-COCOTB_TEST_MODULES = test
+COCOTB_TEST_MODULES = test_project
 
 # include cocotb's make rules to take care of the simulator setup
 include $(shell cocotb-config --makefiles)/Makefile.sim
