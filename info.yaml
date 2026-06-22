@@ -1,15 +1,14 @@
 project:
   title: "Tiny Anomaly Detection Engine"
-  author: "Susan"           # ← your name
-  discord: ""               # optional
+  author: "Susan"
+  discord: ""
   description: "Moving average anomaly detector: raises ALERT when sensor input deviates from 4-sample mean by more than a programmable threshold."
   language: "Verilog"
-  clock_hz: 10000000        # 10 MHz (conservative for SKY130)
+  clock_hz: 10000000
   tiles: "1x1"
   top_module: "tt_um_anomaly_detector"
-
-source_files:
-  - "project.v"
+  source_files:
+    - "project.v"
 
 pinout:
   ui[0]: "sensor_data[0]"
