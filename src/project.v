@@ -11,44 +11,58 @@ module tt_um_anomaly_detector (
     input  wire       rst_n
 );
 
-    reg [7:0] w0, w1, w2, w3;
+    assign uio_out = 8'b0;
+    assign uio_oe  = 8'b0;
+
+    reg [7:0] window [0:3];
+    reg [1:0] wr_ptr;
+    reg [2:0] count;
     reg [9:0] sum;
-    reg [1:0] count;
-    reg       ready;
+    reg [7:0] mean;
     reg       alert;
-    reg [7:0] mean_r;
+    reg       ready;
 
-    assign uio_oe  = 8'd0;
-    assign uio_out = 8'd0;
-
-    wire [7:0] threshold = uio_in;
-    wire [7:0] mean_c    = sum[9:2];
-    wire [8:0] diff_s    = {1'b0, ui_in} - {1'b0, mean_c};
-    wire [7:0] diff_ab   = diff_s[8] ? (~diff_s[7:0] + 8'd1) : diff_s[7:0];
+    integer i;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            w0 <= 8'd0; w1 <= 8'd0; w2 <= 8'd0; w3 <= 8'd0;
-            sum    <= 10'd0;
-            count  <= 2'd0;
-            ready  <= 1'b0;
-            alert  <= 1'b0;
-            mean_r <= 8'd0;
+            for (i = 0; i < 4; i = i + 1) window[i] <= 0;
+            wr_ptr <= 0;
+            count  <= 0;
+            sum    <= 0;
+            mean   <= 0;
+            alert  <= 0;
+            ready  <= 0;
         end else if (ena) begin
-            sum <= sum - {2'b00, w3} + {2'b00, ui_in};
-            w3 <= w2; w2 <= w1; w1 <= w0; w0 <= ui_in;
-            if (!ready) begin
-                if (count == 2'd3) ready <= 1'b1;
-                else count <= count + 1'd1;
+            // Compute new sum (combinatorially referenced below)
+            sum    <= sum - window[wr_ptr] + ui_in;
+            window[wr_ptr] <= ui_in;
+            wr_ptr <= (wr_ptr == 2'd3) ? 2'd0 : wr_ptr + 1;
+
+            if (count < 3'd4) count <= count + 1;
+
+            if (count == 3'd3) begin
+                // 4th sample arriving NOW: window is about to be full
+                ready <= 1;
             end
-            mean_r <= mean_c;
-            if (ready) alert <= (diff_ab > threshold);
-            else       alert <= 1'b0;
+
+            if (count >= 3'd3) begin
+                // Update mean from new sum
+                mean <= (sum - window[wr_ptr] + ui_in) >> 2;
+                // Compare new input against OLD mean (before this sample)
+                // Use 9-bit subtraction to avoid unsigned underflow
+                alert <= ( ({1'b0, ui_in} > {1'b0, mean})
+                           ? (ui_in - mean)
+                           : (mean  - ui_in) ) > uio_in;
+            end else begin
+                alert <= 0;
+                ready <= 0;
+            end
         end
     end
 
     assign uo_out[0]   = alert;
     assign uo_out[1]   = ready;
-    assign uo_out[7:2] = mean_r[7:2];
+    assign uo_out[7:2] = mean[7:2];
 
 endmodule
